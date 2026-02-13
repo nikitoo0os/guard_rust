@@ -2,12 +2,14 @@ package org.prologicsoft.guardManager.gui;
 
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.prologicsoft.guardManager.ConfigManager;
 import org.prologicsoft.guardManager.GuardPlugin;
 
@@ -24,90 +26,80 @@ public class GuardMenuListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent e) {
-        if (!(e.getWhoClicked() instanceof Player)) return;
+        if (!(e.getWhoClicked() instanceof Player player)) return;
 
-        Player player = (Player) e.getWhoClicked();
         String title = e.getView().getTitle();
-
-        if (!title.equals(ChatColor.DARK_GREEN + "⚔ Выбор стража ⚔")) {
+        if (!title.contains("Выбор стража")) {  // ← contains вместо equals — надёжнее
             return;
         }
 
         e.setCancelled(true);
 
-        if (e.getCurrentItem() == null) return;
-        if (!e.getCurrentItem().hasItemMeta()) return;
-        if (!e.getCurrentItem().getItemMeta().hasDisplayName()) return;
-
         ItemStack clicked = e.getCurrentItem();
-        String displayName = clicked.getItemMeta().getDisplayName();
+        if (clicked == null || !clicked.hasItemMeta() || !clicked.getItemMeta().hasDisplayName()) return;
 
-        plugin.getLogger().info("Нажат предмет: " + displayName);
+        String displayName = ChatColor.stripColor(clicked.getItemMeta().getDisplayName());  // убираем цвета для парсинга
 
-        // Обработка выбора стража
-        if (displayName.contains("Тир")) {
-            try {
-                String tierStr = displayName.split("Тир ")[1].split(":")[0];
-                plugin.getLogger().info("Игрок " + player.getName() + " выбрал тир: " + tierStr);
+        plugin.getLogger().info("[DEBUG] Игрок " + player.getName() + " кликнул на: " + displayName);
 
-                ConfigManager.GuardType type = plugin.getConfigManager()
-                        .getGuardTypes().get(tierStr);
-
-                if (type != null) {
-                    // Проверка прав
-                    if (!player.hasPermission(type.getPermission())) {
-                        player.sendMessage(ChatColor.RED + "❌ У вас нет доступа к этому стражу!");
-                        player.sendMessage(ChatColor.GRAY + "Требуется право: " + type.getPermission());
-                        player.closeInventory();
-                        return;
-                    }
-
-                    // Проверка клана
-                    String clan = null;
-                    if (plugin.getClanAdapter() != null) {
-                        clan = plugin.getClanAdapter().getClanName(player);
-                        if (clan == null) {
-                            player.sendMessage(ChatColor.RED + "❌ Вы не в клане!");
-                            player.closeInventory();
-                            return;
-                        }
-                    }
-
-                    // Проверка лимита
-                    if (clan != null && plugin.getGuardManager() != null) {
-                        int currentGuards = plugin.getGuardManager().getClanGuardsCount(clan);
-                        int maxGuards = plugin.getConfigManager().getMaxGuards();
-
-                        if (currentGuards >= maxGuards) {
-                            player.sendMessage(ChatColor.RED + "❌ Ваш клан достиг лимита стражей!");
-                            player.closeInventory();
-                            return;
-                        }
-                    }
-
-                    // Выдача контроллера
-                    ItemStack controller = createGuardController(type);
-                    player.getInventory().addItem(controller);
-
-                    player.sendMessage(ChatColor.GREEN + "✅ Вы приобрели стража: " +
-                            ChatColor.GOLD + type.getDisplayName() +
-                            ChatColor.GREEN + " [Тир " + type.getTier() + "]");
-
-                    player.closeInventory();
-                }
-            } catch (Exception ex) {
-                player.sendMessage(ChatColor.RED + "❌ Ошибка при выборе стража!");
-                ex.printStackTrace();
-            }
-        }
-
-        // Обработка кнопки управления стражами
+        // Обработка кнопки "Управление стражами"
         if (displayName.contains("Управление стражами")) {
             player.closeInventory();
+            new GuardManageMenu(plugin).openMenu(player);
+            return;
+        }
 
-            // Открываем меню управления стражами клана
-            GuardManageMenu manageMenu = new GuardManageMenu(plugin);
-            manageMenu.openMenu(player);
+        // Обработка тиров (теперь безопасно)
+        if (displayName.contains("Тир")) {
+            try {
+                // Более надёжный парсинг: берём цифру после "Тир "
+                String tierStr = displayName.replaceAll(".*Тир\\s*(\\d+).*", "$1");
+                if (tierStr.isEmpty()) {
+                    player.sendMessage(ChatColor.RED + "Ошибка: не удалось определить тир");
+                    plugin.getLogger().warning("Не удалось спарсить тир из: " + displayName);
+                    return;
+                }
+
+                plugin.getLogger().info("[DEBUG] Выбран тир: " + tierStr);
+
+                ConfigManager.GuardType type = plugin.getConfigManager().getGuardTypes().get("tier" + tierStr);
+                if (type == null) {
+                    player.sendMessage(ChatColor.RED + "Тип стража Тир " + tierStr + " не найден в конфиге!");
+                    return;
+                }
+
+                // Проверка привилегии
+                if (!player.hasPermission(type.getPermission())) {
+                    player.sendMessage(ChatColor.RED + "❌ Нет права: " + type.getPermission());
+                    player.sendMessage(ChatColor.GRAY + "Требуется привилегия для Тир " + type.getTier());
+                    return;
+                }
+
+                // Проверка клана
+                String clan = plugin.getClanAdapter() != null ? plugin.getClanAdapter().getClanName(player) : null;
+                if (clan == null) {
+                    player.sendMessage(ChatColor.RED + "❌ Ты не в клане!");
+                    return;
+                }
+
+                // Проверка лимита (опционально, но полезно)
+                if (plugin.getGuardManager().getClanGuardsCount(clan) >= plugin.getConfigManager().getMaxGuards()) {
+                    player.sendMessage(ChatColor.RED + "❌ Лимит стражей достигнут!");
+                    return;
+                }
+
+                // Выдача контроллера
+                ItemStack controller = createGuardController(type);  // твой метод
+                player.getInventory().addItem(controller);
+
+                player.sendMessage(ChatColor.GREEN + "✅ Получен контроллер: " + type.getDisplayName() + " [Тир " + type.getTier() + "]");
+                player.closeInventory();
+
+            } catch (Exception ex) {
+                player.sendMessage(ChatColor.RED + "Ошибка при покупке стража!");
+                plugin.getLogger().warning("Ошибка при клике на тир: " + ex.getMessage());
+                ex.printStackTrace();
+            }
         }
     }
 
@@ -127,6 +119,9 @@ public class GuardMenuListener implements Listener {
         lore.add(ChatColor.GRAY + "══════════════════");
         lore.add(ChatColor.YELLOW + "💡 ПКМ по блоку для призыва");
         meta.setLore(lore);
+
+        NamespacedKey key = new NamespacedKey(plugin, "guard_tier_id");
+        meta.getPersistentDataContainer().set(key, PersistentDataType.STRING, type.getId());  // "tier1", "tier5" и т.д.
 
         item.setItemMeta(meta);
         return item;

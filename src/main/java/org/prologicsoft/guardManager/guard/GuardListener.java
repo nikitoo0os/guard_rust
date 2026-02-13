@@ -1,10 +1,7 @@
 package org.prologicsoft.guardManager.guard;
 
 import lombok.RequiredArgsConstructor;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
-import org.bukkit.Location;
-import org.bukkit.Material;
+import org.bukkit.*;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -12,6 +9,8 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.prologicsoft.guardManager.ConfigManager;
@@ -29,8 +28,7 @@ public class GuardListener implements Listener {
 
     @EventHandler
     public void onInteract(PlayerInteractEvent e) {
-        if (e.getItem() == null) return;
-        if (e.getItem().getType() != Material.PAPER) return;
+        if (e.getItem() == null || e.getItem().getType() != Material.PAPER) return;
 
         Player player = e.getPlayer();
 
@@ -41,58 +39,68 @@ public class GuardListener implements Listener {
         }
 
         // Проверка территории клана
-        Location placeLoc;
-        if (e.getClickedBlock() != null) {
-            placeLoc = e.getClickedBlock().getLocation();
-        } else {
-            placeLoc = player.getLocation();
-        }
+        Location placeLoc = e.getClickedBlock() != null
+                ? e.getClickedBlock().getLocation()
+                : player.getLocation();
 
         ClanTerritoryAdapter territoryAdapter = plugin.getTerritoryAdapter();
         if (territoryAdapter != null) {
             if (!territoryAdapter.isInTerritory(placeLoc, clan)) {
-                player.sendMessage(ChatColor.RED + "❌ Можно ставить стражей только на территории своего клана!");
+                player.sendMessage(ChatColor.RED + "❌ Можно ставить стражей только на территории клана!");
                 return;
             }
             if (!territoryAdapter.canBuild(player, placeLoc)) {
-                player.sendMessage(ChatColor.RED + "❌ У вас нет прав на строительство в этом месте!");
+                player.sendMessage(ChatColor.RED + "❌ Нет прав на строительство здесь!");
                 return;
             }
         }
 
+        // Проверка лимита и кулдауна
         if (!guardManager.canPlace(player, clan)) {
-            player.sendMessage(ChatColor.RED + "❌ Лимит стражей или кулдаун!");
+            player.sendMessage(ChatColor.RED + "❌ Лимит стражей достигнут или кулдаун не прошёл!");
             return;
         }
 
-        // Получаем тип стража из метаданных предмета
+        // === Главный фикс: получаем тип через NBT, а не через название ===
         ConfigManager.GuardType type = null;
-        if (e.getItem().hasItemMeta() && e.getItem().getItemMeta().hasDisplayName()) {
-            String displayName = e.getItem().getItemMeta().getDisplayName();
-            if (displayName.contains("Тир")) {
-                String tierStr = displayName.split("Тир ")[1].split("]")[0];
-                type = plugin.getConfigManager().getGuardTypes().get(tierStr);
+        if (e.getItem().hasItemMeta()) {
+            ItemMeta meta = e.getItem().getItemMeta();
+            NamespacedKey key = new NamespacedKey(plugin, "guard_tier_id");
+
+            String tierId = meta.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+            if (tierId != null) {
+                type = plugin.getConfigManager().getGuardTypes().get(tierId);
             }
         }
 
         if (type == null) {
-            player.sendMessage(ChatColor.RED + "❌ Тип стража не найден!");
+            player.sendMessage(ChatColor.RED + "❌ Не удалось определить тип стража в контроллере!");
+            plugin.getLogger().warning("[Guard] Не найден tierId в контроллере у " + player.getName());
             return;
         }
 
+        // Определяем точку спавна
         Location spawnLoc;
         if (e.getClickedBlock() != null) {
             spawnLoc = e.getClickedBlock().getLocation().add(0.5, 1, 0.5);
         } else {
-            spawnLoc = player.getLocation().add(
-                    player.getLocation().getDirection().multiply(2)
-            ).add(0, 1, 0);
-            if (spawnLoc.getBlock().getType() != Material.AIR) {
+            spawnLoc = player.getLocation()
+                    .add(player.getLocation().getDirection().multiply(2))
+                    .add(0, 1, 0);
+
+            // Если точка спавна в блоке — поднимаем выше
+            while (spawnLoc.getBlock().getType() != Material.AIR && spawnLoc.getY() < 255) {
                 spawnLoc.add(0, 1, 0);
             }
         }
 
-        // СОЗДАЕМ СТРАЖА ЧЕРЕЗ НОВЫЙ КОНСТРУКТОР!
+        // Проверка, что точка спавна в воздухе
+        if (spawnLoc.getBlock().getType() != Material.AIR) {
+            player.sendMessage(ChatColor.RED + "❌ Нет места для спавна стража!");
+            return;
+        }
+
+        // Создаём стража
         Guard guard = new Guard(
                 UUID.randomUUID(),
                 player.getUniqueId(),
@@ -103,13 +111,15 @@ public class GuardListener implements Listener {
 
         guardManager.registerGuard(guard);
 
+        // Уменьшаем количество предмета
         if (e.getItem().getAmount() > 1) {
             e.getItem().setAmount(e.getItem().getAmount() - 1);
         } else {
             player.getInventory().setItemInMainHand(null);
         }
 
-        player.sendMessage(ChatColor.GREEN + "✅ " + getTierName(type.getTier()) + " призван на защиту клана!");
+        player.sendMessage(ChatColor.GREEN + "✅ " + type.getDisplayName() + " (Тир " + type.getTier() + ") призван!");
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.8f, 1.2f);
     }
 
     private String getTierName(int tier) {
