@@ -1,0 +1,75 @@
+name: RustGuard
+version: 1.0.0
+main: org.prologicsoft.guardManager.GuardPlugin
+api-version: 1.21
+
+# Sentinel и Citizens не обязательны, но желательны
+softdepend: [RustCraft, Citizens, Sentinel, Vault]
+
+# Все команды
+commands:
+  guardgive:
+    description: Выдаёт контроллер стража
+    usage: /guardgive [количество]
+    permission: guard.give
+
+  guard:
+    description: Главная команда системы стражей
+    usage: |
+      /guard - Открыть меню
+      /guard give <тир> - Получить контроллер
+      /guard list - Список стражей клана
+      /guard remove <id> - Удалить стража
+      /guard removeall - Удалить всех стражей
+      /guard tp <id> - Телепорт к стражу
+    permission: guard.use
+
+# Все права
+permissions:
+  # Основные права
+  guard.use:
+    description: Доступ к команде /guard
+    default: true
+
+  guard.give:
+    description: Позволяет выдавать контроллеры стражей
+    default: op
+
+  guard.admin:
+    description: Полный доступ ко всем функциям
+    default: op
+    children:
+      guard.use: true
+      guard.give: true
+      guard.type.all: true
+
+  # Права на тиры стражей
+  guard.type.i:
+    description: Доступ к стражам I тира (Новичок)
+    default: true
+
+  guard.type.ii:
+    description: Доступ к стражам II тира (Воин)
+    default: false
+
+  guard.type.iii:
+    description: Доступ к стражам III тира (Рыцарь)
+    default: false
+
+  guard.type.iv:
+    description: Доступ к стражам IV тира (Элитный)
+    default: false
+
+  guard.type.v:
+    description: Доступ к стражам V тира (Легенда)
+    default: false
+
+  guard.type.all:
+    description: Доступ ко всем типам стражей
+    default: op
+    children:
+      guard.type.i: true
+      guard.type.ii: true
+      guard.type.iii: true
+      guard.type.iv: true
+      guard.type.v: true
