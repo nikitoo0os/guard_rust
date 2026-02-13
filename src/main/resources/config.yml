@@ -1,74 +1,70 @@
 guard_config:
-  max_guards: 3
-  min_radius: 3
-  max_radius: 20
-  respawn_time: 60
-  cooldown_place: 10
-  heal_amount: 10
+  max_guards: 5
+  min_radius: 5
+  max_radius: 30
+  respawn_time: 120
+  cooldown_place: 15
+  heal_amount: 20
   show_health_bar: true
   show_detection_effect: true
-  min_detection_radius: 5
-  max_detection_radius: 20
-
-  # Настройки размеров стражей
-  guard_sizes:
-    1: 1.0  # Новичок - обычный размер
-    2: 1.2  # Воин - чуть больше
-    3: 1.4  # Рыцарь - заметно больше
-    4: 1.6  # Элитный - очень большой
-    5: 2.0  # Легенда - гигант
+  min_detection_radius: 8
+  max_detection_radius: 25
 
   guard_types:
-    1:
-      perm: "guard.type.i"
-      hp: 100
-      dmg: 10
-      heal: true
-      name: "Новичок"
+    tier1:
+      permission: guard.tier.1
       tier: 1
-      radius: 10
-      icon: "WOODEN_SWORD"
-      price: 1000
-    2:
-      perm: "guard.type.ii"
-      hp: 200
-      dmg: 15
-      heal: true
-      name: "Воин"
+      hp: 120
+      damage: 9
+      can_heal: true
+      display_name: "Новобранец"
+      detection_radius: 12
+      icon: IRON_INGOT
+      price: 1500
+
+    tier2:
+      permission: guard.tier.2
       tier: 2
-      radius: 15
-      icon: "STONE_SWORD"
-      price: 5000
-    3:
-      perm: "guard.type.iii"
-      hp: 350
-      dmg: 20
-      heal: true
-      name: "Рыцарь"
+      hp: 200
+      damage: 14
+      can_heal: true
+      display_name: "Страж"
+      detection_radius: 16
+      icon: GOLD_INGOT
+      price: 6000
+
+    tier3:
+      permission: guard.tier.3
       tier: 3
-      radius: 20
-      icon: "IRON_SWORD"
-      price: 15000
-    4:
-      perm: "guard.type.iv"
-      hp: 500
-      dmg: 25
-      heal: true
-      name: "Элитный"
+      hp: 350
+      damage: 20
+      can_heal: true
+      display_name: "Рыцарь"
+      detection_radius: 20
+      icon: DIAMOND
+      price: 18000
+
+    tier4:
+      permission: guard.tier.4
       tier: 4
-      radius: 25
-      icon: "DIAMOND_SWORD"
-      price: 30000
-    5:
-      perm: "guard.type.v"
-      hp: 750
-      dmg: 35
-      heal: true
-      name: "Легенда"
+      hp: 550
+      damage: 28
+      can_heal: true
+      display_name: "Элитный Страж"
+      detection_radius: 24
+      icon: EMERALD
+      price: 45000
+
+    tier5:
+      permission: guard.tier.5
       tier: 5
-      radius: 30
-      icon: "NETHERITE_SWORD"
-      price: 50000
+      hp: 900
+      damage: 40
+      can_heal: true
+      display_name: "Легендарный Страж"
+      detection_radius: 30
+      icon: NETHERITE_INGOT
+      price: 120000
 
   territory:
     require_territory: true  # Включить проверку территории

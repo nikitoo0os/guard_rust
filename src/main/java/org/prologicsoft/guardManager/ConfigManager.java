@@ -34,109 +34,102 @@ public class ConfigManager {
     }
 
     public void loadConfig() {
-        // ✅ 1. Сохраняем дефолтный конфиг если его нет
         plugin.saveDefaultConfig();
         plugin.reloadConfig();
         this.config = plugin.getConfig();
 
-        // ✅ 2. Проверяем что config не null
         if (this.config == null) {
-            plugin.getLogger().severe("❌ НЕ УДАЛОСЬ ЗАГРУЗИТЬ CONFIG.YML!");
-            plugin.getLogger().severe("Проверьте что файл config.yml есть в resources плагина!");
+            plugin.getLogger().severe("❌ НЕ УДАЛОСЬ ЗАГРУЗИТЬ config.yml!");
             return;
         }
 
-        // ✅ 3. Загружаем базовые настройки (РАСКОММЕНТИРУЙТЕ ЭТОТ КОД!)
-        this.maxGuards = config.getInt("guard_config.max_guards", 3);
-        this.minRadius = config.getInt("guard_config.min_radius", 3);
-        this.maxRadius = config.getInt("guard_config.max_radius", 20);
-        this.respawnTime = config.getInt("guard_config.respawn_time", 60);
-        this.cooldownPlace = config.getInt("guard_config.cooldown_place", 10);
-        this.healAmount = config.getInt("guard_config.heal_amount", 10);
+        // Базовые настройки
+        this.maxGuards = config.getInt("guard_config.max_guards", 5);
+        this.minRadius = config.getInt("guard_config.min_radius", 5);
+        this.maxRadius = config.getInt("guard_config.max_radius", 30);
+        this.respawnTime = config.getInt("guard_config.respawn_time", 120);
+        this.cooldownPlace = config.getInt("guard_config.cooldown_place", 15);
+        this.healAmount = config.getInt("guard_config.heal_amount", 20);
 
         this.showHealthBar = config.getBoolean("guard_config.show_health_bar", true);
         this.showDetectionEffect = config.getBoolean("guard_config.show_detection_effect", true);
-        this.minDetectionRadius = config.getInt("guard_config.min_detection_radius", 5);
-        this.maxDetectionRadius = config.getInt("guard_config.max_detection_radius", 20);
+        this.minDetectionRadius = config.getInt("guard_config.min_detection_radius", 8);
+        this.maxDetectionRadius = config.getInt("guard_config.max_detection_radius", 25);
 
-        // ✅ 4. Очищаем типы перед загрузкой
         guardTypes.clear();
 
-        // ✅ 5. Загрузка типов охранников из конфига
         ConfigurationSection typesSection = config.getConfigurationSection("guard_config.guard_types");
+        boolean loadedFromConfig = false;
+
         if (typesSection != null) {
             for (String key : typesSection.getKeys(false)) {
-                ConfigurationSection type = typesSection.getConfigurationSection(key);
-                if (type == null) continue;
+                ConfigurationSection typeSec = typesSection.getConfigurationSection(key);
+                if (typeSec == null) continue;
 
-                // Получаем значения из конфига или используем значения по умолчанию из GuardTier
-                GuardTier defaultTier = null;
-                for (GuardTier tier : GuardTier.values()) {
-                    if (tier.getId().equals(key)) {
-                        defaultTier = tier;
-                        break;
-                    }
+                int tier = typeSec.getInt("tier", 1);
+                if (tier < 1 || tier > 5) {
+                    plugin.getLogger().warning("Неверный tier " + tier + " для " + key + " — пропущен");
+                    continue;
                 }
 
-                GuardType guardType;
-                if (defaultTier != null) {
-                    // Используем значения из GuardTier
-                    guardType = new GuardType(
-                            key,
-                            type.getString("perm", "guard.type." + key.toLowerCase()),
-                            type.getInt("hp", defaultTier.getHp()),
-                            type.getInt("dmg", defaultTier.getDmg()),
-                            type.getBoolean("heal", true),
-                            type.getString("name", defaultTier.getName()),
-                            type.getInt("tier", defaultTier.getTier()),
-                            type.getInt("radius", defaultTier.getRadius()),
-                            Material.getMaterial(type.getString("icon", defaultTier.getIcon().name())),
-                            type.getInt("price", defaultTier.getPrice())
-                    );
-                } else {
-                    // Для кастомных типов используем значения по умолчанию
-                    guardType = new GuardType(
-                            key,
-                            type.getString("perm", "guard.type." + key.toLowerCase()),
-                            type.getInt("hp", 100),
-                            type.getInt("dmg", 10),
-                            type.getBoolean("heal", true),
-                            type.getString("name", "Страж " + key),
-                            type.getInt("tier", 1),
-                            type.getInt("radius", 20),
-                            Material.getMaterial(type.getString("icon", "IRON_SWORD")),
-                            type.getInt("price", 1000)
-                    );
-                }
-
-                guardTypes.put(key, guardType);
-                plugin.getLogger().info("✅ Загружен тип стража: " + key);
-            }
-        } else {
-            plugin.getLogger().warning("⚠ Секция guard_types не найдена в config.yml!");
-        }
-
-        // ✅ 6. Добавляем тиры из GuardTier если их нет в конфиге
-        for (GuardTier tier : GuardTier.values()) {
-            if (!guardTypes.containsKey(tier.getId())) {
-                GuardType guardType = new GuardType(
-                        tier.getId(),
-                        "guard.type." + tier.getId().toLowerCase(),
-                        tier.getHp(),
-                        tier.getDmg(),
-                        true,
-                        tier.getName(),
-                        tier.getTier(),
-                        tier.getRadius(),
-                        tier.getIcon(),
-                        tier.getPrice()
+                GuardType gt = new GuardType(
+                        key,
+                        typeSec.getString("permission", "guard.tier." + tier),
+                        typeSec.getInt("hp", 100 + (tier * 50)),
+                        typeSec.getInt("damage", 8 + (tier * 3)),
+                        typeSec.getBoolean("can_heal", true),
+                        typeSec.getString("display_name", "Страж Тир " + tier),
+                        tier,
+                        typeSec.getInt("detection_radius", 15 + (tier * 3)),
+                        Material.matchMaterial(typeSec.getString("icon", "IRON_INGOT")),
+                        typeSec.getInt("price", 1000 * tier * tier)
                 );
-                guardTypes.put(tier.getId(), guardType);
-                plugin.getLogger().info("✅ Добавлен тип стража по умолчанию: " + tier.getId());
+
+                guardTypes.put(key, gt);
+                loadedFromConfig = true;
+                plugin.getLogger().info("Загружен тип из config: " + key + " (Тир " + tier + ")");
             }
         }
 
-        plugin.getLogger().info("✅ Загружено типов стражей: " + guardTypes.size());
+        // Если в конфиге НЕТ ни одного типа — добавляем ровно 5 дефолтных
+        if (!loadedFromConfig || guardTypes.size() < 5) {
+            guardTypes.clear(); // чистим, чтобы не было мусора
+            for (int tier = 1; tier <= 5; tier++) {
+                String key = "tier" + tier;
+                GuardType gt = new GuardType(
+                        key,
+                        "guard.tier." + tier,
+                        80 + (tier * 40),           // hp
+                        6 + (tier * 3),             // dmg
+                        true,
+                        "Страж Тир " + tier,
+                        tier,
+                        10 + (tier * 4),            // radius
+                        getDefaultIcon(tier),
+                        500 * tier * tier           // цена растёт квадратично
+                );
+                guardTypes.put(key, gt);
+                plugin.getLogger().info("Добавлен дефолтный тип: " + key + " (Тир " + tier + ")");
+            }
+        }
+
+        if (guardTypes.size() != 5) {
+            plugin.getLogger().warning("Внимание: загружено " + guardTypes.size() + " типов вместо 5!");
+        } else {
+            plugin.getLogger().info("Успешно загружено ровно 5 типов стражей");
+        }
+    }
+
+    // Вспомогательный метод для иконок
+    private Material getDefaultIcon(int tier) {
+        return switch (tier) {
+            case 1 -> Material.IRON_INGOT;
+            case 2 -> Material.GOLD_INGOT;
+            case 3 -> Material.DIAMOND;
+            case 4 -> Material.EMERALD;
+            case 5 -> Material.NETHERITE_INGOT;
+            default -> Material.IRON_INGOT;
+        };
     }
 
     // Геттеры...
