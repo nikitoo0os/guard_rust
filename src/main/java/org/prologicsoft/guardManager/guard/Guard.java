@@ -1,26 +1,29 @@
 package org.prologicsoft.guardManager.guard;
 
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.Particle;
+import me.valenwe.rustcraft.clans.Clan;
+import org.bukkit.*;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.CrossbowMeta;
+import org.bukkit.inventory.meta.LeatherArmorMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.prologicsoft.guardManager.ConfigManager;
 
 import java.util.UUID;
 
-import org.bukkit.ChatColor;
 import org.bukkit.attribute.Attribute;
+import org.prologicsoft.guardManager.GuardPlugin;
 
 public class Guard {
     private final UUID id;
     private final UUID ownerId;
-    private final String clan;
+    private final Clan clan;
     private final ConfigManager.GuardType type;
     private LivingEntity entity;
     private Location spawnLocation;
+
+    private final GuardPlugin plugin;
 
     private boolean patrolling = false;
     private Location patrolCenter;
@@ -28,13 +31,14 @@ public class Guard {
     private long lastAttackTime = 0;
     private boolean isDead = false;
 
-    public Guard(UUID id, UUID ownerId, String clan, ConfigManager.GuardType type, Location spawnLoc) {
+    public Guard(GuardPlugin plugin, UUID id, UUID ownerId, Clan clan, ConfigManager.GuardType type, Location spawnLoc) {
         this.id = id;
         this.ownerId = ownerId;
         this.clan = clan;
         this.type = type;
         this.spawnLocation = spawnLoc.clone();
         this.patrolCenter = spawnLoc.clone();
+        this.plugin = plugin;
         this.isDead = false;
 
         this.entity = spawnEntity(spawnLoc);
@@ -54,59 +58,136 @@ public class Guard {
                 break;
 
             case 2:
-                // Тир 2: Снежный голем с мечом! (ИСПРАВЛЕНО: SNOWMAN -> SNOW_GOLEM)
-                entity = (Snowman) loc.getWorld().spawnEntity(loc, EntityType.SNOW_GOLEM);
+                entity = (Stray) loc.getWorld().spawnEntity(loc, EntityType.STRAY);
                 if (entity.getEquipment() != null) {
-                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.STONE_SWORD));
-                    entity.getEquipment().setItemInMainHandDropChance(0);
+                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.BOW));
+                    ItemStack helmet = new ItemStack(Material.LEATHER_HELMET);
+                    if (helmet.getItemMeta() instanceof LeatherArmorMeta) {
+                        LeatherArmorMeta meta = (LeatherArmorMeta) helmet.getItemMeta();
+                        meta.setColor(Color.fromRGB(100, 150, 255));
+                        helmet.setItemMeta(meta);
+                    }
+                    entity.getEquipment().setHelmet(helmet);
                 }
+
+                // ✅ КРИТИЧЕСКИ ВАЖНО: Настройки агрессии
+                entity.setRemoveWhenFarAway(false);
+                entity.setPersistent(true);
+
+                // ✅ Заставляем скелета быть агрессивным
+                Skeleton skeleton = (Skeleton) entity;
+                skeleton.setShouldBurnInDay(false); // Не горит на солнце
+
+                // ✅ Даем цели
+                entity.setCustomNameVisible(true);
+                entity.setCustomName("§f⚔[Ⅱ]⚔ Временное имя"); // Временное имя для проверки
+
+                // Эффекты
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, false, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.INSTANT_DAMAGE, Integer.MAX_VALUE, 0, false, false));
+
+                // ✅ Отладка
+                plugin.getLogger().info("§a[DEBUG] Заспавнен Stray (тир 2)");
                 break;
 
             case 3:
-                // Тир 3: Бродячий торговец
-                entity = (WanderingTrader) loc.getWorld().spawnEntity(loc, EntityType.WANDERING_TRADER);
+                // Тир 3: Wither Skeleton - мощный скелет
+                entity = (WitherSkeleton) loc.getWorld().spawnEntity(loc, EntityType.WITHER_SKELETON);
                 if (entity.getEquipment() != null) {
-                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.IRON_SWORD));
-                    entity.getEquipment().setChestplate(new ItemStack(Material.IRON_CHESTPLATE));
-                    entity.getEquipment().setItemInMainHandDropChance(0);
-                    entity.getEquipment().setChestplateDropChance(0);
+                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.STONE_SWORD));
+                    entity.getEquipment().setHelmet(new ItemStack(Material.CHAINMAIL_HELMET));
+                    entity.getEquipment().setChestplate(new ItemStack(Material.CHAINMAIL_CHESTPLATE));
+                    entity.getEquipment().setLeggings(new ItemStack(Material.CHAINMAIL_LEGGINGS));
+                    entity.getEquipment().setBoots(new ItemStack(Material.CHAINMAIL_BOOTS));
                 }
+
+                // ✅ КРИТИЧЕСКИ ВАЖНО: Настраиваем агрессию
+                entity.setRemoveWhenFarAway(false);
+                entity.setPersistent(true);
+
+                // ✅ Заставляем скелета быть агрессивным
+                WitherSkeleton witherSkeleton = (WitherSkeleton) entity;
+
+                // Даем эффекты
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, Integer.MAX_VALUE, 0, false, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, false, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.RESISTANCE, Integer.MAX_VALUE, 0, false, false));
+
                 break;
 
             case 4:
-                // Тир 4: Разбойник
+                // Тир 4: Pillager с заряженным арбалетом
                 entity = (Pillager) loc.getWorld().spawnEntity(loc, EntityType.PILLAGER);
                 if (entity.getEquipment() != null) {
-                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.CROSSBOW));
+                    // Заряжаем арбалет
+                    ItemStack crossbow = new ItemStack(Material.CROSSBOW);
+                    if (crossbow.getItemMeta() instanceof CrossbowMeta) {
+                        CrossbowMeta crossbowMeta = (CrossbowMeta) crossbow.getItemMeta();
+                        crossbowMeta.addChargedProjectile(new ItemStack(Material.ARROW, 3));
+                        crossbow.setItemMeta(crossbowMeta);
+                    }
+
+                    entity.getEquipment().setItemInMainHand(crossbow);
                     entity.getEquipment().setChestplate(new ItemStack(Material.DIAMOND_CHESTPLATE));
-                    entity.getEquipment().setItemInMainHandDropChance(0);
-                    entity.getEquipment().setChestplateDropChance(0);
                 }
-                ((Pillager) entity).setPatrolLeader(false);
+
+                // ✅ Правильные настройки для пиллера
+                entity.setRemoveWhenFarAway(false);
+                entity.setPersistent(true);
+
+                // Даем эффекты
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, false, false));
                 break;
 
             case 5:
-                // Тир 5: ВАРДЕН! (Самый жирный)
-                entity = (Warden) loc.getWorld().spawnEntity(loc, EntityType.WARDEN);
-                // Варден сам по себе сильный, не нужна экипировка
-                // Добавляем ему свечение для пафоса
-                entity.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, Integer.MAX_VALUE, 0, false, false));
+                // Тир 5: Vindicator - палач
+                entity = (Vindicator) loc.getWorld().spawnEntity(loc, EntityType.VINDICATOR);
+                if (entity.getEquipment() != null) {
+                    entity.getEquipment().setItemInMainHand(new ItemStack(Material.NETHERITE_AXE));
+                    entity.getEquipment().setHelmet(new ItemStack(Material.NETHERITE_HELMET));
+                    entity.getEquipment().setChestplate(new ItemStack(Material.NETHERITE_CHESTPLATE));
+                    entity.getEquipment().setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
+                    entity.getEquipment().setBoots(new ItemStack(Material.NETHERITE_BOOTS));
+                }
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, Integer.MAX_VALUE, 1, false, false));
+                entity.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, Integer.MAX_VALUE, 0, false, false));
                 break;
         }
 
+        // Настройка атрибутов
         if (entity != null) {
             entity.setCustomNameVisible(true);
             entity.setRemoveWhenFarAway(false);
-            entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(type.getHp());
-            entity.setHealth(type.getHp());
-            entity.getAttribute(Attribute.ATTACK_DAMAGE).setBaseValue(type.getDmg());
-            entity.getAttribute(Attribute.FOLLOW_RANGE).setBaseValue(30);
+            entity.setPersistent(true); // Не деспавнится
 
-            // Запрещаем мобу брать предметы
+            // HP
+            if (entity.getAttribute(Attribute.MAX_HEALTH) != null) {
+                entity.getAttribute(Attribute.MAX_HEALTH).setBaseValue(type.getHp());
+                entity.setHealth(type.getHp());
+            }
+
+            // Attack Damage (только если есть)
+            if (entity.getAttribute(Attribute.ATTACK_DAMAGE) != null) {
+                entity.getAttribute(Attribute.ATTACK_DAMAGE).setBaseValue(type.getDmg());
+            } else {
+                // Для мобов без атрибута атаки - даем силу
+                int strengthLevel = (type.getDmg() / 3) - 1;
+                if (strengthLevel > 0) {
+                    entity.addPotionEffect(new PotionEffect(
+                            PotionEffectType.STRENGTH,
+                            Integer.MAX_VALUE,
+                            strengthLevel,
+                            false, false
+                    ));
+                }
+            }
+
+            // Follow Range
+            if (entity.getAttribute(Attribute.FOLLOW_RANGE) != null) {
+                entity.getAttribute(Attribute.FOLLOW_RANGE).setBaseValue(30);
+            }
+
             entity.setCanPickupItems(false);
-
-            // Делаем моба агрессивным ко всем, кроме своей команды
-            entity.setRemoveWhenFarAway(false);
         }
 
         return entity;
@@ -141,10 +222,10 @@ public class Guard {
     private String getTierName() {
         switch (type.getTier()) {
             case 1: return "Новичок";
-            case 2: return "Снежный Страж";
-            case 3: return "Торговец-Стражник";
-            case 4: return "Арбалетчик";
-            case 5: return "Палач";
+            case 2: return "Морозный Страж";     // Stray
+            case 3: return "Иссушенный Страж";   // Wither Skeleton
+            case 4: return "Арбалетчик";         // Pillager
+            case 5: return "Палач";               // Vindicator
             default: return "Страж";
         }
     }
@@ -192,9 +273,8 @@ public class Guard {
             case 1: return Particle.SMOKE;
             case 2: return Particle.SNOWFLAKE;
             case 3: return Particle.HAPPY_VILLAGER;
-
             case 4: return Particle.CRIT;
-            case 5: return Particle.FIREWORK;
+            case 5: return Particle.FIREWORK; // или Particle.SONIC_BOOM
             default: return Particle.HAPPY_VILLAGER;
         }
     }
@@ -202,10 +282,10 @@ public class Guard {
     private String getSpawnSound() {
         switch (type.getTier()) {
             case 1: return "entity.iron_golem.repair";
-            case 2: return "entity.snow_golem.ambient";  // ИСПРАВЛЕНО!
+            case 2: return "entity.snow_golem.ambient";
             case 3: return "entity.wandering_trader.yes";
             case 4: return "entity.pillager.celebrate";
-            case 5: return "entity.vindicator.celebrate";
+            case 5: return "entity.vindicator.celebrate"; // или "entity.iron_golem.damage"
             default: return "entity.iron_golem.hurt";
         }
     }
@@ -288,7 +368,7 @@ public class Guard {
     // Геттеры и сеттеры
     public UUID getId() { return id; }
     public UUID getOwnerId() { return ownerId; }
-    public String getClan() { return clan; }
+    public Clan getClan() { return clan; }
     public ConfigManager.GuardType getType() { return type; }
     public LivingEntity getEntity() { return entity; }
     public Location getSpawnLocation() { return spawnLocation; }
@@ -323,6 +403,31 @@ public class Guard {
     public void setPatrolRadius(int patrolRadius) {
         this.patrolRadius = Math.max(5, Math.min(20, patrolRadius));
         updateDisplayName();
+    }
+
+    public void pacifyWarden() {
+        if (entity == null || !(entity instanceof Warden warden) || isDead) return;
+
+        // Полная зачистка агрессии вардена
+        warden.setTarget(null);
+
+        // Очищаем anger ко всем игрокам (хотя это для игроков, но на всякий случай)
+        for (Player p : warden.getWorld().getPlayers()) {
+            warden.setAnger(p, 0);
+        }
+
+        // Добавляем эффект невидимости к агрессии (опционально)
+        warden.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, 40, 0, false, false, false));
+
+        // Отключаем звуки вардена на время
+        warden.setSilent(true);
+
+        // Планируем включить звуки обратно через некоторое время
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (warden != null && !warden.isDead()) {
+                warden.setSilent(false);
+            }
+        }, 100L); // 5 секунд
     }
 
     public void setPatrolCenter(Location patrolCenter) { this.patrolCenter = patrolCenter; }

@@ -3,7 +3,7 @@ guard_config:
   min_radius: 5
   max_radius: 30
   respawn_time: 120
-  cooldown_place: 15
+  cooldown_place: 5
   heal_amount: 20
   show_health_bar: true
   show_detection_effect: true
@@ -12,62 +12,61 @@ guard_config:
 
   guard_types:
     tier1:
-      permission: guard.tier.1
+      perm: "guard.tier.1"
       tier: 1
       hp: 120
-      damage: 9
-      can_heal: true
-      display_name: "Новобранец"
-      detection_radius: 12
-      icon: IRON_INGOT
+      dmg: 9
+      heal: true
+      name: "Новобранец"           # ✅ Железный голем
+      radius: 12
+      icon: "IRON_INGOT"
       price: 1500
 
     tier2:
-      permission: guard.tier.2
+      perm: "guard.tier.2"
       tier: 2
       hp: 200
-      damage: 14
-      can_heal: true
-      display_name: "Страж"
-      detection_radius: 16
-      icon: GOLD_INGOT
+      dmg: 14
+      heal: true
+      name: "Морозный Страж"        # ✅ Stray (скелет с луком)
+      radius: 16
+      icon: "GOLD_INGOT"
       price: 6000
 
     tier3:
-      permission: guard.tier.3
+      perm: "guard.tier.3"
       tier: 3
       hp: 350
-      damage: 20
-      can_heal: true
-      display_name: "Рыцарь"
-      detection_radius: 20
-      icon: DIAMOND
+      dmg: 20
+      heal: true
+      name: "Иссушенный Страж"      # ✅ Wither Skeleton
+      radius: 20
+      icon: "DIAMOND"
       price: 18000
 
     tier4:
-      permission: guard.tier.4
+      perm: "guard.tier.4"
       tier: 4
       hp: 550
-      damage: 28
-      can_heal: true
-      display_name: "Элитный Страж"
-      detection_radius: 24
-      icon: EMERALD
+      dmg: 28
+      heal: true
+      name: "Элитный Страж"         # ✅ Pillager (арбалетчик)
+      radius: 24
+      icon: "EMERALD"
       price: 45000
 
     tier5:
-      permission: guard.tier.5
+      perm: "guard.tier.5"
       tier: 5
       hp: 900
-      damage: 40
-      can_heal: true
-      display_name: "Легендарный Страж"
-      detection_radius: 30
-      icon: NETHERITE_INGOT
+      dmg: 40
+      heal: true
+      name: "Легендарный Страж"     # ✅ Vindicator (палач)
+      radius: 30
+      icon: "NETHERITE_INGOT"
       price: 120000
 
   territory:
-    require_territory: true  # Включить проверку территории
-    allow_in_wilderness: false  # Разрешить в дикой местности
-    check_build_permission: true  # Проверять права на строительство
-
+    require_territory: true
+    allow_in_wilderness: false
+    check_build_permission: true

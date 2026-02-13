@@ -1,9 +1,12 @@
 package org.prologicsoft.guardManager.guard;
 
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
+import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.entity.*;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.CrossbowMeta;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.prologicsoft.guardManager.GuardPlugin;
 
 import java.util.*;
@@ -41,7 +44,7 @@ public class GuardManager {
 
     public void registerGuard(Guard guard) {
         guards.put(guard.getId(), guard);
-        clanGuards.putIfAbsent(guard.getClan(), new HashSet<>());
+        clanGuards.putIfAbsent(guard.getClan().getName(), new HashSet<>());
         clanGuards.get(guard.getClan()).add(guard.getId());
     }
 
@@ -56,7 +59,6 @@ public class GuardManager {
         return guards.values();
     }
 
-    // ✅ ИСПРАВЛЕНО: Теперь правильно ищет по entity (UUID entity != UUID guard!)
     public Guard getByEntity(Entity entity) {
         for (Guard guard : guards.values()) {
             LivingEntity guardEntity = guard.getEntity();
@@ -67,7 +69,6 @@ public class GuardManager {
         return null;
     }
 
-    // ✅ ДОБАВЛЕНО: Для меню по ID
     public Guard getById(UUID id) {
         return guards.get(id);
     }
@@ -81,125 +82,259 @@ public class GuardManager {
 
     public void startAI() {
         Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+
             for (Guard guard : guards.values()) {
+
                 if (guard.isDead()) continue;
 
                 LivingEntity entity = guard.getEntity();
                 if (entity == null || entity.isDead()) continue;
 
-                // === СПЕЦИАЛЬНАЯ ОБРАБОТКА WARDEN ===
-                if (entity instanceof Warden warden) {
-                    // Обнуляем anger ко всем игрокам своего клана
-                    for (Player p : entity.getWorld().getPlayers()) {
-                        String playerClan = plugin.getClanAdapter().getClanName(p);
-                        if (playerClan != null && playerClan.equals(guard.getClan())) {
-                            warden.setAnger(p, 0);          // основной метод
-                            // warden.clearAnger(p);        // если setAnger не сработает — пробуй clearAnger (новее API)
-                        }
+            /* ===============================
+               1. ЗАЩИТА ОТ ВОДЫ
+               =============================== */
+                if (entity.isInWater() || entity.isInWaterOrRain()) {
+                    Location safe = findSafeLocationNear(guard.getSpawnLocation());
+                    if (safe != null) {
+                        entity.teleport(safe);
+                        entity.getWorld().spawnParticle(
+                                Particle.PORTAL,
+                                entity.getLocation(),
+                                25, 0.5, 0.5, 0.5, 0.1
+                        );
                     }
+                    continue; // после телепорта — НИКАКОГО AI
                 }
 
-                // Общий сброс target (для всех мобов, включая Warden)
-                if (entity instanceof Mob mob) {
-                    LivingEntity currentTarget = mob.getTarget();
-                    if (currentTarget instanceof Player targetPlayer) {
-                        String targetClan = plugin.getClanAdapter().getClanName(targetPlayer);
-                        if (targetClan != null && targetClan.equals(guard.getClan())) {
-                            mob.setTarget(null);
-                            if (mob.getPathfinder() != null) {
-                                mob.getPathfinder().stopPathfinding();
-                            }
-                        }
-                    }
-                }
+                if (!(entity instanceof Mob mob)) continue;
 
-                // Проверяем видимость имени
-                boolean playerNearby = false;
-                for (Player p : entity.getWorld().getPlayers()) {
-                    if (p.getLocation().distance(entity.getLocation()) < 15) {
-                        playerNearby = true;
-                        break;
-                    }
-                }
-                entity.setCustomNameVisible(playerNearby);
-
-                // Динамический радиус поиска врагов
-                double healthPercent = entity.getHealth() /
+            /* ===============================
+               2. ДИНАМИЧЕСКИЙ РАДИУС
+               =============================== */
+                double hpPercent = entity.getHealth() /
                         entity.getAttribute(Attribute.MAX_HEALTH).getBaseValue();
 
                 int baseRadius = plugin.getConfigManager().getMaxRadius();
-                double radiusMultiplier = 0.5 + (healthPercent * 0.5);
-                int currentRadius = (int) (baseRadius * radiusMultiplier);
                 int minRadius = plugin.getConfigManager().getMinRadius();
+
+                int currentRadius = (int) (baseRadius * (0.5 + hpPercent * 0.5));
                 currentRadius = Math.max(currentRadius, minRadius);
 
-                // Патруль
-                if (guard.isPatrolling() && entity instanceof Mob mob) {
-                    if (mob.getTarget() == null) {
-                        if (mob.getVelocity().lengthSquared() < 0.01) {
-                            double angle = Math.random() * 2 * Math.PI;
-                            double radius = 3 + (Math.random() * (guard.getPatrolRadius() - 3));
-                            double x = guard.getPatrolCenter().getX() + Math.cos(angle) * radius;
-                            double z = guard.getPatrolCenter().getZ() + Math.sin(angle) * radius;
+            /* ===============================
+               3. ТЕКУЩАЯ ЦЕЛЬ
+               =============================== */
+                LivingEntity target = mob.getTarget();
 
-                            Location targetLoc = new Location(entity.getWorld(), x,
-                                    guard.getPatrolCenter().getY(), z);
+                if (target != null) {
 
-                            mob.getPathfinder().moveTo(targetLoc, 1.0);
+                    // цель умерла
+                    if (target.isDead()) {
+                        mob.setTarget(null);
+                        mob.getPathfinder().stopPathfinding();
+                    }
+
+                    // союзник-игрок
+                    else if (target instanceof Player p) {
+                        String clan = plugin.getClanAdapter().getClanName(p);
+                        if (clan != null && clan.equals(guard.getClan())) {
+                            mob.setTarget(null);
+                            mob.getPathfinder().stopPathfinding();
                         }
+                    }
+
+                    // союзник-страж
+                    else {
+                        Guard other = getByEntity(target);
+                        if (other != null && other.getClan().equals(guard.getClan())) {
+                            mob.setTarget(null);
+                            mob.getPathfinder().stopPathfinding();
+                        }
+                    }
+
+                    // цель убежала слишком далеко
+                    if (mob.getTarget() != null &&
+                            mob.getTarget().getLocation().distance(entity.getLocation()) > currentRadius) {
+
+                        mob.setTarget(null);
+                        mob.getPathfinder().stopPathfinding();
                     }
                 }
 
-                // Поиск врагов (игроки НЕ из клана)
-                Player nearestEnemy = null;
-                double closestDistance = Double.MAX_VALUE;
+                /* ===============================
+                   HARD CLAN SAFETY (ANTI FRIENDLY FIRE)
+                   =============================== */
+                LivingEntity currentTarget = mob.getTarget();
+                if (currentTarget instanceof Player p) {
 
-                for (Player p : entity.getWorld().getPlayers()) {
-                    double distance = p.getLocation().distance(entity.getLocation());
-                    if (distance > currentRadius) continue;
+                    String clan = plugin.getClanAdapter().getClanName(p);
 
-                    String clan = null;
-                    if (plugin.getClanAdapter() != null) {
-                        clan = plugin.getClanAdapter().getClanName(p);
-                    }
-
-                    // Пропускаем и сбрасываем цель для своих
                     if (clan != null && clan.equals(guard.getClan())) {
-                        if (entity instanceof Mob mob) {
-                            if (mob.getTarget() == p) {
-                                mob.setTarget(null);
-                                if (mob.getPathfinder() != null) {
-                                    mob.getPathfinder().stopPathfinding();
-                                }
-                            }
-                        }
+
+                        plugin.getLogger().warning(
+                                "[FRIENDLY-FIRE BLOCKED] "
+                                        + entity.getType()
+                                        + " пытался атаковать соклановца "
+                                        + p.getName()
+                                        + " (клан " + clan + ")"
+                        );
+
+                        mob.setTarget(null);
+                        mob.getPathfinder().stopPathfinding();
+                        mob.setAware(false); // ВАЖНО
+                        mob.setAware(true);
                         continue;
                     }
-
-                    if (distance < closestDistance) {
-                        closestDistance = distance;
-                        nearestEnemy = p;
-                    }
                 }
 
-                if (nearestEnemy != null) {
-                    if (entity instanceof Mob mob) {
+
+            /* ===============================
+               4. ПОИСК НОВОЙ ЦЕЛИ
+               =============================== */
+                if (mob.getTarget() == null) {
+
+                    Player nearestEnemy = null;
+                    double closest = Double.MAX_VALUE;
+
+                    for (Player p : entity.getWorld().getPlayers()) {
+
+                        if (p.isDead() || !p.isOnline()) continue;
+
+                        double dist = p.getLocation().distance(entity.getLocation());
+                        if (dist > currentRadius) continue;
+
+                        String playerClan = plugin.getClanAdapter().getClanName(p);
+                        String guardClan = guard.getClan().getName();
+
+                        // DEBUG
+                        plugin.getLogger().info("[DEBUG] Проверка игрока "
+                                + p.getName()
+                                + " | dist=" + (int) dist
+                                + " | playerClan=" + playerClan
+                                + " | guardClan=" + guardClan);
+
+                        if (playerClan != null && playerClan.equals(guardClan)) {
+                            plugin.getLogger().info("[DEBUG] -> союзник, пропуск");
+                            continue;
+                        }
+
+                        if (dist < closest) {
+                            closest = dist;
+                            nearestEnemy = p;
+                        }
+                    }
+
+                    if (nearestEnemy != null) {
                         mob.setTarget(nearestEnemy);
                         guard.setLastAttackTime(System.currentTimeMillis());
-                    }
 
-                    if (plugin.getConfigManager().isShowDetectionEffect()) {
-                        entity.getWorld().playSound(entity.getLocation(),
-                                "entity.iron_golem.hurt", 0.5f, 1.0f);
-                    }
-                } else {
-                    if (entity instanceof Mob mob) {
-                        mob.setTarget(null);
+                        plugin.getLogger().info("[DEBUG] ЦЕЛЬ УСТАНОВЛЕНА -> "
+                                + nearestEnemy.getName());
+
+                        if (plugin.getConfigManager().isShowDetectionEffect()) {
+                            playDetectionSound(entity);
+                        }
                     }
                 }
+
+            /* ===============================
+               5. PILLAGER FIX (ПЕРЕЗАРЯДКА)
+               =============================== */
+                if (entity instanceof Pillager pillager) {
+                    ItemStack hand = pillager.getEquipment().getItemInMainHand();
+                    if (hand.getType() == Material.CROSSBOW &&
+                            hand.getItemMeta() instanceof CrossbowMeta meta &&
+                            meta.getChargedProjectiles().isEmpty()) {
+
+                        meta.addChargedProjectile(new ItemStack(Material.ARROW));
+                        hand.setItemMeta(meta);
+                    }
+                }
+
+            /* ===============================
+               6. ПАТРУЛЬ (ТОЛЬКО ЕСЛИ НЕТ ЦЕЛИ)
+               =============================== */
+                if (guard.isPatrolling() && mob.getTarget() == null) {
+
+                    if (!mob.getPathfinder().hasPath()) {
+                        double angle = Math.random() * Math.PI * 2;
+                        double radius = 3 + Math.random() * (guard.getPatrolRadius() - 3);
+
+                        double x = guard.getPatrolCenter().getX() + Math.cos(angle) * radius;
+                        double z = guard.getPatrolCenter().getZ() + Math.sin(angle) * radius;
+
+                        Location patrolLoc = new Location(
+                                entity.getWorld(),
+                                x,
+                                guard.getPatrolCenter().getY(),
+                                z
+                        );
+
+                        mob.getPathfinder().moveTo(patrolLoc, 1.0);
+                    }
+                }
+
+            /* ===============================
+               7. ВИДИМОСТЬ ИМЕНИ
+               =============================== */
+                boolean showName = false;
+                for (Player p : entity.getWorld().getPlayers()) {
+                    if (p.getLocation().distance(entity.getLocation()) < 15) {
+                        showName = true;
+                        break;
+                    }
+                }
+                entity.setCustomNameVisible(showName);
 
                 guard.updateDisplayName();
             }
-        }, 20L, 20L);  // каждую секунду — достаточно часто для Warden
+
+        }, 20L, 20L);
+    }
+
+
+    private void playDetectionSound(LivingEntity entity) {
+        Sound sound = Sound.ENTITY_IRON_GOLEM_HURT;
+
+        if (entity instanceof Warden) {
+            sound = Sound.ENTITY_WARDEN_SONIC_BOOM;
+        } else if (entity instanceof Pillager) {
+            sound = Sound.ENTITY_PILLAGER_CELEBRATE;
+        } else if (entity instanceof Vindicator) {
+            sound = Sound.ENTITY_VINDICATOR_CELEBRATE;
+        } else if (entity instanceof Stray) {  // ✅ Добавить!
+            sound = Sound.ENTITY_STRAY_AMBIENT;
+        } else if (entity instanceof WitherSkeleton) {  // ✅ Добавить!
+            sound = Sound.ENTITY_WITHER_SKELETON_AMBIENT;
+        } else if (entity instanceof Snowman) {
+            sound = Sound.ENTITY_SNOW_GOLEM_AMBIENT;
+        }
+
+        entity.getWorld().playSound(entity.getLocation(), sound, 0.5f, 1.0f);
+    }
+
+    // Добавьте этот метод в класс GuardManager
+    private Location findSafeLocationNear(Location center) {
+        // Проверяем вокруг точки спавна
+        for (int x = -3; x <= 3; x++) {
+            for (int z = -3; z <= 3; z++) {
+                for (int y = 0; y <= 2; y++) {
+                    Location check = center.clone().add(x, y, z);
+
+                    // Блок под ногами
+                    Location below = check.clone().add(0, -1, 0);
+                    if (!below.getBlock().getType().isSolid()) continue;
+
+                    // Блок головы
+                    if (check.getBlock().getType() != Material.AIR) continue;
+
+                    // Проверка на воду
+                    if (check.getBlock().isLiquid()) continue;
+                    if (below.getBlock().isLiquid()) continue;
+
+                    return check;
+                }
+            }
+        }
+        return center; // Если ничего не нашли - используем точку спавна
     }
 }
